@@ -1,0 +1,384 @@
+<html>
+<canvas id="c" width="800" height="600"></canvas>
+
+<script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
+
+#ifdef GL_ES
+precision highp float;
+#endif
+
+uniform int uVertexCount;
+// uniform ivec2 uStartEndCoords;
+uniform int[5] uStartCoords;
+uniform int[5] uCoordPolarities;
+uniform int uMaxTraverse;
+uniform ivec2 uIntersectJs[10];
+
+uniform float uZ;
+uniform vec2[5] uVs;
+uniform float[5] uGammas;
+
+uniform vec2 uOffset;
+uniform vec2 uRatio;
+
+uniform float uTime;
+
+out vec4 vColor;
+
+float k(vec2 xy, vec2 v, float gamma) {
+	return ceil(dot(xy, v) + gamma);
+}
+
+void main() {
+	// With credit to http://www.neverendingbooks.org/de-bruijns-pentagrids/ and the De Bruijn paper it is based on.
+	
+	// Which vertex are we identifying?
+	int rhombVertexIndex = gl_VertexID % 6;
+	int rhombNumber = gl_VertexID / 6;
+
+	// Which values of K are we finding intersections for?
+	ivec2 coordIndex = ivec2(rhombNumber % uMaxTraverse, (rhombNumber / uMaxTraverse) % uMaxTraverse);	
+
+	// Which grids are we finding an intersection for?
+	int gridIndex = rhombNumber / (uMaxTraverse * uMaxTraverse);
+	ivec2 intersect = uIntersectJs[gridIndex];
+
+	// Generate intersection point
+	vec2 kz = vec2(
+		float(uStartCoords[intersect.x] + coordIndex.x * uCoordPolarities[intersect.x]),
+		float(uStartCoords[intersect.y] + coordIndex.y * uCoordPolarities[intersect.y])
+	);
+	float kmgr = kz.x - uGammas[intersect.x];
+	float kmgs = kz.y - uGammas[intersect.y];
+	vec2 vr = uVs[intersect.x];
+	vec2 vs = uVs[intersect.y];
+
+	vec2 xy = vec2(
+		(kmgr * vs.y - kmgs * vr.y) / (vr.x * vs.y - vr.y * vs.x),
+		(kmgr * vs.x - kmgs * vr.x) / (vr.y * vs.x - vr.x * vs.y)
+	);
+
+	// Generate vertex
+	float e1 = float(rhombVertexIndex == 2 || rhombVertexIndex == 4 || rhombVertexIndex == 5);
+	float e2 = float(rhombVertexIndex == 1 || rhombVertexIndex == 3 || rhombVertexIndex == 5);
+	vec2 resultVertex;
+	for (int i = 0; i < 5; i++) {
+		float d1 = float(intersect.x == i);
+		float d2 = float(intersect.y == i);
+		float dx = float(d1 + d2 == 0.0);
+		float k = d1 * kz.x + d2 * kz.y + dx * k(xy, uVs[i], uGammas[i]);
+		resultVertex += (k + e1 * d1 + e2 * d2) * uVs[i];
+	}
+
+	float amt = float(gl_VertexID) / float(uVertexCount);
+	vColor = vec4(sin(amt * sin(uTime)), cos(amt + 1.0 + sin(uTime)), sin(2.0 + amt * sin(uTime)), 1.0);
+	if (rhombVertexIndex == 0) {
+		vColor = vec4(mod(amt + 0.6, 1.0), amt, mod(amt + 0.3, 1.0), 1.0);
+	}
+	gl_Position = vec4((resultVertex + uOffset) * uZ * uRatio, 0.0, 1.0);
+}
+
+</script>
+
+<script id="point-vertex-shader" type="x-shader/x-vertex">#version 300 es
+
+uniform int uVertexCount;
+uniform ivec2 uStartEndCoords;
+uniform ivec2 uIntersectJs[10];
+
+uniform float uZ;
+uniform vec2[5] uVs;
+uniform float[5] uGammas;
+
+uniform vec2 uRatio;
+
+out vec4 vColor;
+
+int k(vec2 xy, vec2 v, float gamma) {
+	return int(ceil((dot(xy, v) + gamma) / uZ));
+}
+
+void main() {
+	// Which vertex are we identifying?
+	int rhombVertexIndex = gl_VertexID % 6;
+
+	int rhombNumber = gl_VertexID / 6;
+
+	// Which values of K are we finding intersections for?
+	int maxTraverse = uStartEndCoords.y - uStartEndCoords.x;
+	ivec2 coordIndex = ivec2(rhombNumber % maxTraverse, rhombNumber / maxTraverse % maxTraverse);
+
+	// Which grids are we finding an intersection for?
+	int gridIndex = rhombNumber / (maxTraverse * maxTraverse);
+	ivec2 intersect = uIntersectJs[gridIndex];
+
+	// Generate intersection point
+	float kmgr = float(uStartEndCoords.x + coordIndex.x) * uZ - uGammas[intersect.x];
+	float kmgs = float(uStartEndCoords.x + coordIndex.y) * uZ - uGammas[intersect.y];
+	vec2 vr = uVs[intersect.x];
+	vec2 vs = uVs[intersect.y];
+
+	vec2 xy = vec2(
+		(kmgr * vs.y - kmgs * vr.y) / (vr.x * vs.y - vr.y * vs.x),
+		(kmgr * vs.x - kmgs * vr.x) / (vr.y * vs.x - vr.x * vs.y)
+	);
+	gl_Position = vec4(xy, 0.0, 1.0);
+	float amt = float(gl_VertexID) / float(uVertexCount);
+	vColor = vec4(amt, mod(amt + 0.3, 1.0), mod(amt + 0.6, 1.0), 1.0);
+
+	gl_PointSize = 4.0;
+}
+
+</script>
+
+<script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
+
+#ifdef GL_ES
+precision highp float;
+#endif
+
+in vec4 vColor;
+out vec4 outColor;
+
+void main() {
+	outColor = vColor;
+}
+
+</script>
+
+<script>
+const canvas = document.getElementById("c");
+const gl = canvas.getContext("webgl2");
+
+const vertexShader = compileShader("vertex-shader", gl.VERTEX_SHADER);
+const fragmentShader = compileShader("fragment-shader", gl.FRAGMENT_SHADER);
+
+const program = gl.createProgram();
+gl.attachShader(program, vertexShader);
+gl.attachShader(program, fragmentShader);
+gl.linkProgram(program);
+
+if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+	console.log("error linking: ");
+	console.log(gl.getProgramInfoLog(program));
+}
+
+const ratio = [1.0, canvas.width / canvas.height];
+// Represents grid spacing interval
+let z = 0.25;
+let phi = 5.0;
+
+let center = [0.0, 0.0];
+let mouseVelocity = [0.0, 0.0];
+let mouseControl = false;
+
+
+let vs_unflat = [getv(0.0), getv(1.0), getv(2.0), getv(3.0), getv(4.0)];
+let vs = vs_unflat.flat();
+
+const gammas = [0.0, 0.3, 0.6, -0.5, -0.4];
+
+let startCoords = [];
+let maxTraverse = 0.0;
+let coordPolarities = [1,1,1,1,1];
+let viewportSpan = (1 / z);
+
+let intersectJs = [];
+let intersectCount = 0;
+for (let i = 0; i < 5; i++) {
+	for (let j = i + 1; j < 5; j++) {
+		intersectJs.push(i, j);
+		intersectCount += 1;
+	}
+}
+
+let vertexCount = 6 * maxTraverse * maxTraverse * intersectCount;
+
+let prevTime = 0.0;
+
+gl.useProgram(program);
+
+setu2iv(program, "uIntersectJs", intersectJs);
+
+canvas.addEventListener("mousedown", (event) => {
+	mouseControl = true;
+});
+
+canvas.addEventListener("mousemove", (event) => {
+	if (mouseControl) {
+		mouseVelocity = [2.0 * event.movementX / canvas.width / z, -2.0 * event.movementY / canvas.height / z];
+	}
+});
+
+canvas.addEventListener("mouseup", (event) => {
+	mouseVelocity = [2.0 * event.movementX / canvas.width / z, -2.0 * event.movementY / canvas.height / z];
+	mouseControl = false;
+});
+
+canvas.addEventListener("mouseleave", (event) => {
+	mouseControl = false;
+})
+
+canvas.addEventListener("wheel", (event) => {
+	event.preventDefault();
+	z += event.deltaY * -0.00001;
+	phi -= event.deltaY * -0.001;
+	z = Math.min(Math.max(z, 0.01), 1);
+	phi = Math.min(Math.max(phi, 2), 20);
+})
+
+let tick = 0;
+
+function animate() {
+	gl.viewport(0, 0, canvas.width, canvas.height);
+	gl.clear(gl.COLOR_BUFFER_BIT);
+
+	setu1iv(program, "uStartCoords", startCoords);
+	setu1i(program, "uMaxTraverse", maxTraverse);
+	setu1iv(program, "uCoordPolarities", coordPolarities);
+
+	setu1i(program, "uVertexCount", vertexCount);
+
+	setu1f(program, "uZ", z);
+	setu2fv(program, "uVs", vs);
+	setu1fv(program, "uGammas", gammas);
+
+	setu2fv(program, "uRatio", ratio);
+	setu2fv(program, "uOffset", center);
+
+	gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
+
+	requestAnimationFrame((currentTime) => {
+		tick += 1;
+		setu1f(program, "uTime", currentTime * 0.001);
+		// z = Math.sin(2.0 * Math.PI * currentTime / 6000.0) / 4.0 + 0.35;
+		if (!mouseControl) {
+			if (dot(mouseVelocity, mouseVelocity) < 0.0002) {
+				mouseVelocity[0] = 0.0;
+				mouseVelocity[1] = 0.0;
+			}
+			mouseVelocity[0] *= 0.5;
+			mouseVelocity[1] *= 0.5;
+		}
+		center[0] += mouseVelocity[0];
+		center[1] += mouseVelocity[1];
+
+		vs_unflat = [getv(0), getv(1), getv(2), getv(3), getv(4)];
+		vs = vs_unflat.flat();
+
+		startCoords = [];
+		let endCoords = [];
+		maxTraverse = 0.0;
+		let viewportSpan = (1 / z);
+		let viewportTopLeftCorner = [-center[0] * (2/phi) - viewportSpan, -center[1] * (2/phi) + viewportSpan];
+		let viewportBottomLeftCorner = [-center[0] * (2/phi) - viewportSpan, -center[1] * (2/phi) - viewportSpan];
+		let viewportTopRightCorner = [-center[0] * (2/phi) + viewportSpan, -center[1] * (2/phi) + viewportSpan];
+		let viewportBottomRightCorner = [-center[0] * (2/phi) + viewportSpan, -center[1] * (2/phi) - viewportSpan];
+		for (let i = 0; i < 5; i++) {
+			let k1 = k(viewportTopLeftCorner, vs_unflat[i], gammas[i]);
+			let k2 = k(viewportBottomLeftCorner, vs_unflat[i], gammas[i]);
+			let k3 = k(viewportTopRightCorner, vs_unflat[i], gammas[i]);
+			let k4 = k(viewportBottomRightCorner, vs_unflat[i], gammas[i]);
+			let kmin = Math.min(k1, k2, k3, k4);
+			let kmax = Math.max(k1, k2, k3, k4);
+			startCoords.push(kmin);
+			endCoords.push(kmax)
+			
+			maxTraverse = Math.max(maxTraverse, kmax - kmin);
+		}
+		vertexCount = 6 * maxTraverse * maxTraverse * intersectCount;
+
+		if (tick % 100 == 0) {
+		// 	console.log("k_start: [" + startCoords + "]");
+		// 	console.log("k_end: [" + endCoords + "]");
+		// 	console.log("center: [" + center + "]");
+		// 	console.log("topleft/bottomright: ")
+		// 	console.log(viewportTopLeftCorner);
+		// 	console.log(viewportBottomRightCorner);
+		// 	console.log("traverse: " + maxTraverse);
+			console.log("z: " + z);
+		// 	tick = 0;
+		}
+
+
+		animate();
+	});
+}
+
+function compileShader(id, type) {
+	const code = document.getElementById(id).firstChild.nodeValue;
+	const shader = gl.createShader(type);
+	gl.shaderSource(shader, code);
+	gl.compileShader(shader);
+
+	if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+		console.log(`error compiling ${type === gl.VERTEX_SHADER ? 'vertex' : 'fragment'} shader: `);
+		console.log(gl.getShaderInfoLog(shader));
+	}
+
+	return shader;
+}
+
+function dot(v1, v2) {
+	if (v1.length !== v2.length) {
+		return 0;
+	}
+	let result = 0;
+	for (let i = 0; i < v1.length; i++) {
+		result += v1[i] * v2[i];
+	}
+	return result;
+}
+
+function k(xy, v, gamma) {
+	return Math.ceil(dot(xy, v) + gamma);
+}
+
+function getv(j) {
+	let neg =  1;
+	return [neg * Math.cos(2.0 * Math.PI * j / phi), neg * Math.sin(2.0 * Math.PI * j / phi)];
+}
+
+function setu2fv(program, name, data) {
+	let uniform = gl.getUniformLocation(program, name);
+	gl.uniform2fv(uniform, data);
+}
+
+function setu2iv(program, name, data) {
+	let uniform = gl.getUniformLocation(program, name);
+	gl.uniform2iv(uniform, data);
+}
+
+function setu4fv(program, name, data) {
+	let uniform = gl.getUniformLocation(program, name);
+	gl.uniform4fv(uniform, data);
+}
+
+function setu1f(program, name, data) {
+	let uniform = gl.getUniformLocation(program, name);
+	gl.uniform1f(uniform, data);
+}
+
+function setu1fv(program, name, data) {
+	let uniform = gl.getUniformLocation(program, name);
+	gl.uniform1fv(uniform, data);
+}
+
+function setu1i(program, name, data) {
+	let uniform = gl.getUniformLocation(program, name);
+	gl.uniform1i(uniform, data);
+}
+
+function setu1iv(program, name, data) {
+	let uniform = gl.getUniformLocation(program, name);
+	gl.uniform1iv(uniform, data);
+}
+
+animate();
+
+</script>
+
+
+
+
+</html>
