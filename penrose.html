@@ -1,5 +1,53 @@
 <html>
+<head>
+	<style>
+		html, body {
+			margin: 0;
+			padding: 0;
+			overflow: hidden;
+			font-family: "Helvetica", "HelveticaNeue", "Arial", sans-serif;
+		}
+		h1 {
+			margin: 10px;
+			color: #FFFFFA;
+		}
+		label {
+			display: block;
+			padding: 10px;
+			color: #FFFFFA;
+			font-style: italic;
+		}
+
+		#settings {
+			position: absolute;
+			z-index: 1;
+			top: 10px;
+			left: 10px;
+			height: 300px;
+			width: 300px;
+			background: #11101080;
+			border-radius: 5px;
+		}
+
+		.setting {
+			background: #88808080;
+			border-radius: 5px;
+			margin: 10px;
+		}
+	</style>
+</head>
 <canvas id="c" width="800" height="600"></canvas>
+<div id="settings">
+	<h1>infinite penrose</h1>
+	<div class="setting">
+		<label for="zoom">zoom</label>
+		<input type="range" id="zoom" name="zoom" value="-1" min="-2.3" max="-0.3" step="any">
+	</div>
+	<div class="setting">
+		<label for="phi">phi</label>
+		<input type="range" id="phi" name="phi" value="5" min="2.25" max="20" step="any">
+	</div>
+</div>
 
 <script id="vertex-shader" type="x-shader/x-vertex">#version 300 es
 
@@ -30,8 +78,8 @@ float k(vec2 xy, vec2 v, float gamma) {
 }
 
 void main() {
-	// With credit to http://www.neverendingbooks.org/de-bruijns-pentagrids/ and the De Bruijn paper it is based on.
-	
+	// With credit to http://www.neverendingbooks.org/de-bruijns-pentagrids/ and the De Bruijn paper that explanation is based on.
+
 	// Which vertex are we identifying?
 	int rhombVertexIndex = gl_VertexID % 6;
 	int rhombNumber = gl_VertexID / 6;
@@ -71,10 +119,8 @@ void main() {
 	}
 
 	float amt = float(gl_VertexID) / float(uVertexCount);
-	vColor = vec4(sin(amt * sin(uTime)), cos(amt + 1.0 + sin(uTime)), sin(2.0 + amt * sin(uTime)), 1.0);
-	if (rhombVertexIndex == 0) {
-		vColor = vec4(mod(amt + 0.6, 1.0), amt, mod(amt + 0.3, 1.0), 1.0);
-	}
+	float cosAngle = dot(vr, vs);
+	vColor = vec4(sin(sin(uTime / 3.0) * amt + cosAngle * float(rhombVertexIndex == 0)), cos(1.0 + sin(uTime) * cosAngle), sin(2.0 * float(rhombVertexIndex == 0) + amt * sin(uTime)), 1.0);
 	gl_Position = vec4((resultVertex + uOffset) * uZ * uRatio, 0.0, 1.0);
 }
 
@@ -148,6 +194,9 @@ void main() {
 
 <script>
 const canvas = document.getElementById("c");
+const zoomInput = document.getElementById("zoom");
+const phiInput = document.getElementById("phi");
+
 const gl = canvas.getContext("webgl2");
 
 const vertexShader = compileShader("vertex-shader", gl.VERTEX_SHADER);
@@ -163,9 +212,9 @@ if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
 	console.log(gl.getProgramInfoLog(program));
 }
 
-const ratio = [1.0, canvas.width / canvas.height];
+let ratio = [1.0, canvas.width / canvas.height];
 // Represents grid spacing interval
-let z = 0.25;
+let z = 0.1;
 let phi = 5.0;
 
 let center = [0.0, 0.0];
@@ -178,7 +227,7 @@ let vs = vs_unflat.flat();
 
 const gammas = [0.0, 0.3, 0.6, -0.5, -0.4];
 
-let startCoords = [];
+let startCoords = [0,0];
 let maxTraverse = 0.0;
 let coordPolarities = [1,1,1,1,1];
 let viewportSpan = (1 / z);
@@ -199,6 +248,8 @@ let prevTime = 0.0;
 gl.useProgram(program);
 
 setu2iv(program, "uIntersectJs", intersectJs);
+
+window.addEventListener("resize", resizeCanvas);
 
 canvas.addEventListener("mousedown", (event) => {
 	mouseControl = true;
@@ -225,6 +276,16 @@ canvas.addEventListener("wheel", (event) => {
 	phi -= event.deltaY * -0.001;
 	z = Math.min(Math.max(z, 0.01), 1);
 	phi = Math.min(Math.max(phi, 2), 20);
+	zoomInput.value = Math.log10(z);
+	phiInput.value = phi;
+})
+
+zoomInput.addEventListener("input", (event) => {
+	z = Math.pow(10, zoomInput.valueAsNumber);
+})
+
+phiInput.addEventListener("input", (event) => {
+	phi = phiInput.valueAsNumber;
 })
 
 let tick = 0;
@@ -270,10 +331,10 @@ function animate() {
 		let endCoords = [];
 		maxTraverse = 0.0;
 		let viewportSpan = (1 / z);
-		let viewportTopLeftCorner = [-center[0] * (2/phi) - viewportSpan, -center[1] * (2/phi) + viewportSpan];
-		let viewportBottomLeftCorner = [-center[0] * (2/phi) - viewportSpan, -center[1] * (2/phi) - viewportSpan];
-		let viewportTopRightCorner = [-center[0] * (2/phi) + viewportSpan, -center[1] * (2/phi) + viewportSpan];
-		let viewportBottomRightCorner = [-center[0] * (2/phi) + viewportSpan, -center[1] * (2/phi) - viewportSpan];
+		let viewportTopLeftCorner = [-center[0] * (2/5) - viewportSpan, -center[1] * (2/5) + viewportSpan];
+		let viewportBottomLeftCorner = [-center[0] * (2/5) - viewportSpan, -center[1] * (2/5) - viewportSpan];
+		let viewportTopRightCorner = [-center[0] * (2/5) + viewportSpan, -center[1] * (2/5) + viewportSpan];
+		let viewportBottomRightCorner = [-center[0] * (2/5) + viewportSpan, -center[1] * (2/5) - viewportSpan];
 		for (let i = 0; i < 5; i++) {
 			let k1 = k(viewportTopLeftCorner, vs_unflat[i], gammas[i]);
 			let k2 = k(viewportBottomLeftCorner, vs_unflat[i], gammas[i]);
@@ -297,6 +358,7 @@ function animate() {
 		// 	console.log(viewportBottomRightCorner);
 		// 	console.log("traverse: " + maxTraverse);
 			console.log("z: " + z);
+			console.log("phi: " + phi);
 		// 	tick = 0;
 		}
 
@@ -317,6 +379,12 @@ function compileShader(id, type) {
 	}
 
 	return shader;
+}
+
+function resizeCanvas() {
+	canvas.width = window.innerWidth;
+	canvas.height = window.innerHeight;
+	ratio = [1.0, canvas.width / canvas.height];
 }
 
 function dot(v1, v2) {
@@ -374,6 +442,7 @@ function setu1iv(program, name, data) {
 	gl.uniform1iv(uniform, data);
 }
 
+resizeCanvas();
 animate();
 
 </script>
