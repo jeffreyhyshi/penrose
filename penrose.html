@@ -12,7 +12,6 @@
 			color: #FFFFFA;
 		}
 		label {
-			display: block;
 			padding: 10px;
 			color: #FFFFFA;
 			font-style: italic;
@@ -23,16 +22,16 @@
 			z-index: 1;
 			top: 10px;
 			left: 10px;
-			height: 300px;
 			width: 300px;
 			background: #11101080;
 			border-radius: 5px;
 		}
 
 		.setting {
-			background: #88808080;
+			background: #444;
 			border-radius: 5px;
 			margin: 10px;
+			padding: 5px;
 		}
 	</style>
 </head>
@@ -41,11 +40,23 @@
 	<h1>infinite penrose</h1>
 	<div class="setting">
 		<label for="zoom">zoom</label>
-		<input type="range" id="zoom" name="zoom" value="-1" min="-2.3" max="-0.3" step="any">
+		<input type="range" id="zoom" name="zoom" value="-1" min="-2" max="-0.3" step="any">
 	</div>
 	<div class="setting">
 		<label for="phi">phi</label>
 		<input type="range" id="phi" name="phi" value="5" min="2.25" max="20" step="any">
+	</div>
+	<div class="setting">
+		<label>render</label>
+		<br/>
+		<input type="radio" id="tiling" value="tiling" name="render" onclick="changeRenderMode(this)"  />
+		<label for="tiling">tiling</label>
+		<br/>
+		<input type="radio" id="lines" value="lines" onclick="changeRenderMode(this)" name="render" checked />
+		<label for="lines">grid lines</label>
+		<br/>
+		<input type="radio" id="points" value="points" onclick="changeRenderMode(this)" name="render" />
+		<label for="points">intersection points</label>
 	</div>
 </div>
 
@@ -56,9 +67,7 @@ precision highp float;
 #endif
 
 uniform int uVertexCount;
-// uniform ivec2 uStartEndCoords;
 uniform int[5] uStartCoords;
-uniform int[5] uCoordPolarities;
 uniform int uMaxTraverse;
 uniform ivec2 uIntersectJs[10];
 
@@ -93,8 +102,8 @@ void main() {
 
 	// Generate intersection point
 	vec2 kz = vec2(
-		float(uStartCoords[intersect.x] + coordIndex.x * uCoordPolarities[intersect.x]),
-		float(uStartCoords[intersect.y] + coordIndex.y * uCoordPolarities[intersect.y])
+		float(uStartCoords[intersect.x] + coordIndex.x),
+		float(uStartCoords[intersect.y] + coordIndex.y)
 	);
 	float kmgr = kz.x - uGammas[intersect.x];
 	float kmgs = kz.y - uGammas[intersect.y];
@@ -129,13 +138,15 @@ void main() {
 <script id="point-vertex-shader" type="x-shader/x-vertex">#version 300 es
 
 uniform int uVertexCount;
-uniform ivec2 uStartEndCoords;
+uniform int[5] uStartCoords;
+uniform int uMaxTraverse;
 uniform ivec2 uIntersectJs[10];
 
 uniform float uZ;
 uniform vec2[5] uVs;
 uniform float[5] uGammas;
 
+uniform vec2 uOffset;
 uniform vec2 uRatio;
 
 out vec4 vColor;
@@ -147,20 +158,22 @@ int k(vec2 xy, vec2 v, float gamma) {
 void main() {
 	// Which vertex are we identifying?
 	int rhombVertexIndex = gl_VertexID % 6;
-
 	int rhombNumber = gl_VertexID / 6;
 
 	// Which values of K are we finding intersections for?
-	int maxTraverse = uStartEndCoords.y - uStartEndCoords.x;
-	ivec2 coordIndex = ivec2(rhombNumber % maxTraverse, rhombNumber / maxTraverse % maxTraverse);
+	ivec2 coordIndex = ivec2(rhombNumber % uMaxTraverse, (rhombNumber / uMaxTraverse) % uMaxTraverse);	
 
 	// Which grids are we finding an intersection for?
-	int gridIndex = rhombNumber / (maxTraverse * maxTraverse);
+	int gridIndex = rhombNumber / (uMaxTraverse * uMaxTraverse);
 	ivec2 intersect = uIntersectJs[gridIndex];
 
 	// Generate intersection point
-	float kmgr = float(uStartEndCoords.x + coordIndex.x) * uZ - uGammas[intersect.x];
-	float kmgs = float(uStartEndCoords.x + coordIndex.y) * uZ - uGammas[intersect.y];
+	vec2 kz = vec2(
+		float(uStartCoords[intersect.x] + coordIndex.x),
+		float(uStartCoords[intersect.y] + coordIndex.y)
+	);
+	float kmgr = kz.x - uGammas[intersect.x];
+	float kmgs = kz.y - uGammas[intersect.y];
 	vec2 vr = uVs[intersect.x];
 	vec2 vs = uVs[intersect.y];
 
@@ -168,14 +181,36 @@ void main() {
 		(kmgr * vs.y - kmgs * vr.y) / (vr.x * vs.y - vr.y * vs.x),
 		(kmgr * vs.x - kmgs * vr.x) / (vr.y * vs.x - vr.x * vs.y)
 	);
-	gl_Position = vec4(xy, 0.0, 1.0);
+	gl_Position = vec4((xy + uOffset) * uZ * uRatio, 0.0, 1.0);
 	float amt = float(gl_VertexID) / float(uVertexCount);
-	vColor = vec4(amt, mod(amt + 0.3, 1.0), mod(amt + 0.6, 1.0), 1.0);
+	float colorVal = float(intersect.x) / 4.0;
+	vColor = vec4(colorVal, mod(colorVal + 0.3, 1.0), mod(colorVal + 0.6, 1.0), 1.0);
 
 	gl_PointSize = 4.0;
 }
 
 </script>
+
+<script id="line-vertex-shader" type="x-shader/x-vertex">#version 300 es
+
+in vec2 aVertex;
+
+uniform int uVertexCount;
+uniform float uZ;
+
+uniform vec2 uOffset;
+uniform vec2 uRatio;
+
+out vec4 vColor;
+
+void main() {
+	gl_Position = vec4((aVertex + uOffset) * uZ * uRatio, 0.0, 1.0);
+	float amt = float(gl_VertexID / (uVertexCount / 5)) / 4.0;
+	vColor = vec4(amt, mod(amt + 0.3, 1.0), mod(amt + 0.6, 1.0), 1.0);
+}
+
+</script>
+
 
 <script id="fragment-shader" type="x-shader/x-fragment">#version 300 es
 
@@ -196,14 +231,26 @@ void main() {
 const canvas = document.getElementById("c");
 const zoomInput = document.getElementById("zoom");
 const phiInput = document.getElementById("phi");
+const renderingInput = document.getElement
 
 const gl = canvas.getContext("webgl2");
 
+const pointVertexShader = compileShader("point-vertex-shader", gl.VERTEX_SHADER);
+const lineVertexShader = compileShader("line-vertex-shader", gl.VERTEX_SHADER);
 const vertexShader = compileShader("vertex-shader", gl.VERTEX_SHADER);
+
 const fragmentShader = compileShader("fragment-shader", gl.FRAGMENT_SHADER);
 
+const shaderLookup = {
+	"tiling": vertexShader,
+	"lines": lineVertexShader,
+	"points": pointVertexShader
+};
+
+let renderMode = "lines";
+
 const program = gl.createProgram();
-gl.attachShader(program, vertexShader);
+gl.attachShader(program, shaderLookup[renderMode]);
 gl.attachShader(program, fragmentShader);
 gl.linkProgram(program);
 
@@ -221,7 +268,6 @@ let center = [0.0, 0.0];
 let mouseVelocity = [0.0, 0.0];
 let mouseControl = false;
 
-
 let vs_unflat = [getv(0.0), getv(1.0), getv(2.0), getv(3.0), getv(4.0)];
 let vs = vs_unflat.flat();
 
@@ -229,7 +275,6 @@ const gammas = [0.0, 0.3, 0.6, -0.5, -0.4];
 
 let startCoords = [0,0];
 let maxTraverse = 0.0;
-let coordPolarities = [1,1,1,1,1];
 let viewportSpan = (1 / z);
 
 let intersectJs = [];
@@ -241,65 +286,72 @@ for (let i = 0; i < 5; i++) {
 	}
 }
 
-let vertexCount = 6 * maxTraverse * maxTraverse * intersectCount;
+let vertexCount;
 
 let prevTime = 0.0;
 
 gl.useProgram(program);
 
-setu2iv(program, "uIntersectJs", intersectJs);
-
 window.addEventListener("resize", resizeCanvas);
 
-canvas.addEventListener("mousedown", (event) => {
-	mouseControl = true;
-});
+updateCoords();
+// [-10, -12, -13, -14, -13]
+// 28
+// startCoords = [-20, -24, -26, -28, -26]
+// maxTraverse = 58
+// vertexCount = 6 * maxTraverse * maxTraverse * intersectCount;
 
-canvas.addEventListener("mousemove", (event) => {
-	if (mouseControl) {
-		mouseVelocity = [2.0 * event.movementX / canvas.width / z, -2.0 * event.movementY / canvas.height / z];
-	}
-});
-
-canvas.addEventListener("mouseup", (event) => {
-	mouseVelocity = [2.0 * event.movementX / canvas.width / z, -2.0 * event.movementY / canvas.height / z];
-	mouseControl = false;
-});
-
-canvas.addEventListener("mouseleave", (event) => {
-	mouseControl = false;
-})
-
-canvas.addEventListener("wheel", (event) => {
-	event.preventDefault();
-	z += event.deltaY * -0.00001;
-	phi -= event.deltaY * -0.001;
-	z = Math.min(Math.max(z, 0.01), 1);
-	phi = Math.min(Math.max(phi, 2), 20);
-	zoomInput.value = Math.log10(z);
-	phiInput.value = phi;
-})
-
-zoomInput.addEventListener("input", (event) => {
-	z = Math.pow(10, zoomInput.valueAsNumber);
-})
-
-phiInput.addEventListener("input", (event) => {
-	phi = phiInput.valueAsNumber;
-})
+console.log(startCoords);
+console.log(maxTraverse);
 
 let tick = 0;
+
+function updateCoords() {
+	startCoords = [];
+	maxTraverse = 0.0;
+	let viewportSpan = (1 / z);
+	let viewportTopLeftCorner = [-center[0] * (2/phi) - viewportSpan, -center[1] * (2/phi) + viewportSpan];
+	let viewportBottomLeftCorner = [-center[0] * (2/phi) - viewportSpan, -center[1] * (2/phi) - viewportSpan];
+	let viewportTopRightCorner = [-center[0] * (2/phi) + viewportSpan, -center[1] * (2/phi) + viewportSpan];
+	let viewportBottomRightCorner = [-center[0] * (2/phi) + viewportSpan, -center[1] * (2/phi) - viewportSpan];
+	for (let i = 0; i < 5; i++) {
+		let k1 = k(viewportTopLeftCorner, vs_unflat[i], gammas[i]);
+		let k2 = k(viewportBottomLeftCorner, vs_unflat[i], gammas[i]);
+		let k3 = k(viewportTopRightCorner, vs_unflat[i], gammas[i]);
+		let k4 = k(viewportBottomRightCorner, vs_unflat[i], gammas[i]);
+		let kmin = Math.min(k1, k2, k3, k4);
+		let kmax = Math.max(k1, k2, k3, k4);
+		startCoords.push(kmin);
+		
+		maxTraverse = Math.max(maxTraverse, kmax - kmin);
+	}
+	vertexCount = 6 * maxTraverse * maxTraverse * intersectCount;
+}
 
 function animate() {
 	gl.viewport(0, 0, canvas.width, canvas.height);
 	gl.clear(gl.COLOR_BUFFER_BIT);
 
+	updateCoords();
+
+	// load in actual vertices for the line drawing
+	if (renderMode === "lines") {
+		const vertexArray = new Float32Array(generateLineVertices());
+		const vertexBuffer = gl.createBuffer();
+		gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+		gl.bufferData(gl.ARRAY_BUFFER, vertexArray, gl.DYNAMIC_DRAW);
+		let aVertex = gl.getAttribLocation(program, "aVertex");
+		gl.enableVertexAttribArray(aVertex);
+		gl.vertexAttribPointer(aVertex, 2, gl.FLOAT, false, 0, 0);
+
+		vertexCount = vertexArray.length / 2;
+	}
+
+	setu2iv(program, "uIntersectJs", intersectJs);
+
 	setu1iv(program, "uStartCoords", startCoords);
 	setu1i(program, "uMaxTraverse", maxTraverse);
-	setu1iv(program, "uCoordPolarities", coordPolarities);
-
-	setu1i(program, "uVertexCount", vertexCount);
-
+	
 	setu1f(program, "uZ", z);
 	setu2fv(program, "uVs", vs);
 	setu1fv(program, "uGammas", gammas);
@@ -307,7 +359,22 @@ function animate() {
 	setu2fv(program, "uRatio", ratio);
 	setu2fv(program, "uOffset", center);
 
-	gl.drawArrays(gl.TRIANGLES, 0, vertexCount);
+	setu1i(program, "uVertexCount", vertexCount);
+
+	let glDrawMode;
+	switch (renderMode) {
+	case "tiling":
+		glDrawMode = gl.TRIANGLES;
+		break;
+	case "lines":
+		glDrawMode = gl.LINES;
+		break;
+	case "points":
+		glDrawMode = gl.POINTS;
+		break;
+	}
+
+	gl.drawArrays(glDrawMode, 0, vertexCount);
 
 	requestAnimationFrame((currentTime) => {
 		tick += 1;
@@ -327,44 +394,57 @@ function animate() {
 		vs_unflat = [getv(0), getv(1), getv(2), getv(3), getv(4)];
 		vs = vs_unflat.flat();
 
-		startCoords = [];
-		let endCoords = [];
-		maxTraverse = 0.0;
-		let viewportSpan = (1 / z);
-		let viewportTopLeftCorner = [-center[0] * (2/5) - viewportSpan, -center[1] * (2/5) + viewportSpan];
-		let viewportBottomLeftCorner = [-center[0] * (2/5) - viewportSpan, -center[1] * (2/5) - viewportSpan];
-		let viewportTopRightCorner = [-center[0] * (2/5) + viewportSpan, -center[1] * (2/5) + viewportSpan];
-		let viewportBottomRightCorner = [-center[0] * (2/5) + viewportSpan, -center[1] * (2/5) - viewportSpan];
-		for (let i = 0; i < 5; i++) {
-			let k1 = k(viewportTopLeftCorner, vs_unflat[i], gammas[i]);
-			let k2 = k(viewportBottomLeftCorner, vs_unflat[i], gammas[i]);
-			let k3 = k(viewportTopRightCorner, vs_unflat[i], gammas[i]);
-			let k4 = k(viewportBottomRightCorner, vs_unflat[i], gammas[i]);
-			let kmin = Math.min(k1, k2, k3, k4);
-			let kmax = Math.max(k1, k2, k3, k4);
-			startCoords.push(kmin);
-			endCoords.push(kmax)
-			
-			maxTraverse = Math.max(maxTraverse, kmax - kmin);
-		}
-		vertexCount = 6 * maxTraverse * maxTraverse * intersectCount;
-
 		if (tick % 100 == 0) {
-		// 	console.log("k_start: [" + startCoords + "]");
-		// 	console.log("k_end: [" + endCoords + "]");
-		// 	console.log("center: [" + center + "]");
-		// 	console.log("topleft/bottomright: ")
-		// 	console.log(viewportTopLeftCorner);
-		// 	console.log(viewportBottomRightCorner);
-		// 	console.log("traverse: " + maxTraverse);
 			console.log("z: " + z);
 			console.log("phi: " + phi);
-		// 	tick = 0;
+			console.log("vertexCount: " + vertexCount);
 		}
 
 
 		animate();
 	});
+}
+
+function changeRenderMode(radioInput) {
+	renderMode = radioInput.value;
+	console.log(renderMode);
+	swapShader(shaderLookup[renderMode]);
+}
+
+function swapShader(newShader) {
+	let currentShaders = gl.getAttachedShaders(program);
+	for (const shader of currentShaders) {
+		if (gl.getShaderParameter(shader, gl.SHADER_TYPE) === gl.VERTEX_SHADER) {
+			console.log("detaching shader: ");
+			console.log(shader);
+			gl.detachShader(program, shader);
+		}
+	}
+	console.log("attaching shader: ");
+	console.log(newShader);
+	gl.attachShader(program, newShader);
+	gl.linkProgram(program);
+	if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+		console.log("error linking: ");
+		console.log(gl.getProgramInfoLog(program));
+	}
+}
+
+function generateLineVertices() {
+	let result = [];
+	for (let i = 0; i < 5; i++) {
+		let v = vs_unflat[i];
+		let gamma = gammas[i];
+		for (let k = startCoords[i]; k < startCoords[i] + maxTraverse; k++) {
+			const y0 = 1 / z / ratio[1] - center[1];
+			const y1 = - 1 / z / ratio[1] - center[1];
+			result.push((k - gamma - y0 * v[1]) / v[0]);
+			result.push(y0);
+			result.push((k - gamma - y1 * v[1]) / v[0]);
+			result.push(y1);
+		}
+	}
+	return result;
 }
 
 function compileShader(id, type) {
@@ -441,6 +521,43 @@ function setu1iv(program, name, data) {
 	let uniform = gl.getUniformLocation(program, name);
 	gl.uniform1iv(uniform, data);
 }
+
+canvas.addEventListener("mousedown", (event) => {
+	mouseControl = true;
+});
+
+canvas.addEventListener("mousemove", (event) => {
+	if (mouseControl) {
+		mouseVelocity = [2.0 * event.movementX / canvas.width / z, -2.0 * event.movementY / canvas.height / z];
+	}
+});
+
+canvas.addEventListener("mouseup", (event) => {
+	mouseVelocity = [2.0 * event.movementX / canvas.width / z, -2.0 * event.movementY / canvas.height / z];
+	mouseControl = false;
+});
+
+canvas.addEventListener("mouseleave", (event) => {
+	mouseControl = false;
+})
+
+canvas.addEventListener("wheel", (event) => {
+	event.preventDefault();
+	z += event.deltaY * -0.00001;
+	phi -= event.deltaY * -0.001;
+	z = Math.min(Math.max(z, 0.01), 1);
+	phi = Math.min(Math.max(phi, 2), 20);
+	zoomInput.value = Math.log10(z);
+	phiInput.value = phi;
+})
+
+zoomInput.addEventListener("input", (event) => {
+	z = Math.pow(10, zoomInput.valueAsNumber);
+})
+
+phiInput.addEventListener("input", (event) => {
+	phi = phiInput.valueAsNumber;
+})
 
 resizeCanvas();
 animate();
